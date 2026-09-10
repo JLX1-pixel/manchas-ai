@@ -1,0 +1,159 @@
+:root {
+  /* Superficies */
+  --surface-page: #f6f5f2;
+  --surface-card: #ffffff;
+  --surface-sidebar: #1c1c1a;
+  --surface-sidebar-hover: #29291f;
+
+  /* Texto */
+  --text-primary: #1c1c1a;
+  --text-secondary: #5f5e57;
+  --text-muted: #8b897f;
+  --text-on-dark: #f6f5f2;
+  --text-on-dark-muted: #a9a89d;
+
+  /* Marca */
+  --brand-wine: #7a2e3a;
+  --brand-wine-dark: #5c2129;
+  --brand-wine-light: #f3e4e6;
+  --brand-amber: #c9821f;
+  --brand-amber-light: #faf0dd;
+  --brand-green: #2f6d4f;
+  --brand-green-light: #e5f0e9;
+  --brand-red: #b3392f;
+  --brand-red-light: #f8e6e3;
+
+  /* Bordes */
+  --border: #e4e2da;
+  --border-strong: #cfcdc2;
+
+  --radius: 8px;
+  --radius-lg: 14px;
+
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-body: "Inter", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-size: 14px;
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--brand-wine);
+  box-shadow: 0 0 0 3px var(--brand-wine-light);
+}
+
+label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+button {
+  cursor: pointer;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-primary {
+  background: var(--brand-wine);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--brand-wine-dark);
+}
+
+.btn-primary:disabled {
+  background: var(--border-strong);
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.btn-ghost:hover {
+  background: var(--surface-page);
+}
+
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+}
+
+.error-text {
+  color: var(--brand-red);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.field {
+  margin-bottom: 16px;
+}
