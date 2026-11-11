@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   changeAppointmentStatus,
@@ -11,6 +11,7 @@ import Modal from "../components/Modal";
 import { useAuth } from "../context/AuthContext";
 
 const MANAGE_ROLES = ["ADMIN", "RECEPCIONISTA"];
+const AGENDA_REFRESH_MS = 30_000;
 const STATUSES = {
   PENDIENTE: { label: "Pendiente", className: "appointment-pending" },
   CONFIRMADA: { label: "Confirmada", className: "status-active" },
@@ -99,6 +100,7 @@ export default function AppointmentsPage() {
   const [date, setDate] = useState(todayInColombia);
   const [barberId, setBarberId] = useState(() => canManage ? user.barber_id ?? "" : "");
   const [catalogs, setCatalogs] = useState(null);
+  const catalogsRef = useRef(null);
   const [catalogError, setCatalogError] = useState("");
   const [agenda, setAgenda] = useState(null);
   const [revision, setRevision] = useState(0);
@@ -110,7 +112,11 @@ export default function AppointmentsPage() {
     const controller = new AbortController();
     loadAppointmentCatalogs(controller.signal)
       .then((data) => {
-        if (!controller.signal.aborted) setCatalogs(data);
+        if (!controller.signal.aborted) {
+          catalogsRef.current = data;
+          setCatalogs(data);
+          setCatalogError("");
+        }
       })
       .catch((err) => {
         if (!controller.signal.aborted) {
@@ -123,19 +129,65 @@ export default function AppointmentsPage() {
   useEffect(() => {
     if (!date) return;
     const controller = new AbortController();
-    listAppointments({ date, barberId, signal: controller.signal })
-      .then((items) => {
-        if (!controller.signal.aborted) setAgenda({ key: agendaKey, items });
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted) {
-          setAgenda({
-            key: agendaKey,
-            error: extractErrorMessage(err, "No pudimos cargar las citas."),
-          });
+    let inFlight = false;
+
+    function showRefreshError(message) {
+      if (controller.signal.aborted) return;
+      setAgenda((previous) => previous?.key === agendaKey && previous.items
+        ? { ...previous, refreshError: message }
+        : { key: agendaKey, error: message });
+    }
+
+    async function refresh() {
+      if (document.hidden || inFlight || controller.signal.aborted) return;
+      if (!navigator.onLine) {
+        showRefreshError("Sin conexión. La agenda se actualizará cuando vuelvas a conectarte.");
+        return;
+      }
+      inFlight = true;
+      try {
+        const items = await listAppointments({ date, barberId, signal: controller.signal });
+        const known = catalogsRef.current;
+        // Otra persona puede agendar para un cliente recién registrado.
+        const hasUnknownRecord = known && items.some((item) =>
+          [["clients", "client_id"], ["barbers", "barber_id"], ["services", "service_id"]]
+            .some(([group, field]) => !known[group].some(({ id }) => id === item[field]))
+        );
+        if (hasUnknownRecord) {
+          const data = await loadAppointmentCatalogs(controller.signal);
+          if (controller.signal.aborted) return;
+          catalogsRef.current = data;
+          setCatalogs(data);
+          setCatalogError("");
         }
-      });
-    return () => controller.abort();
+        if (!controller.signal.aborted) {
+          setAgenda({ key: agendaKey, items, updatedAt: new Date() });
+        }
+      } catch (err) {
+        showRefreshError(extractErrorMessage(err, "No pudimos actualizar las citas. Volveremos a intentarlo automáticamente."));
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    function handleOffline() {
+      showRefreshError("Sin conexión. La agenda se actualizará cuando vuelvas a conectarte.");
+    }
+
+    refresh();
+    const interval = window.setInterval(refresh, AGENDA_REFRESH_MS);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
+      window.removeEventListener("offline", handleOffline);
+    };
   }, [date, barberId, agendaKey]);
 
   const currentAgenda = agenda?.key === agendaKey ? agenda : null;
@@ -224,6 +276,21 @@ export default function AppointmentsPage() {
           Actualizar
         </button>
       </div>
+
+      {currentAgenda?.updatedAt && (
+        <p className="muted-text">
+          Actualización automática cada 30 segundos mientras esta pantalla esté abierta.
+          {" Última consulta "}
+          <time dateTime={currentAgenda.updatedAt.toISOString()}>
+            {currentAgenda.updatedAt.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" })}
+          </time>.
+        </p>
+      )}
+      {currentAgenda?.refreshError && (
+        <div className="alert alert-error" role="status">
+          {currentAgenda.refreshError} Mostramos la última información recibida.
+        </div>
+      )}
 
       {error ? (
         <div className="alert alert-error" role="alert">

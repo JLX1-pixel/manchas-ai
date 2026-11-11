@@ -32,6 +32,7 @@ export function listAppointments({ date, barberId, signal }) {
   return collectPages(async ({ skip, limit }) => {
     const response = await apiClient.get("/appointments", {
       signal,
+      timeout: 15_000,
       params: {
         appointment_date: date,
         barber_id: barberId || undefined,
