@@ -199,9 +199,19 @@ export default function AppointmentsPage() {
       new Map(catalogs?.[group].map(({ id, name }) => [id, name])),
     ])
   );
-  const canBook = catalogs && ["clients", "barbers", "services"].every(
+  const canBook = catalogs && ["barbers", "services"].every(
     (group) => catalogs[group].some((record) => record.is_active)
   );
+
+  function handleClientCreated(client) {
+    const current = catalogsRef.current;
+    const updated = {
+      ...current,
+      clients: [...current.clients.filter(({ id }) => id !== client.id), client],
+    };
+    catalogsRef.current = updated;
+    setCatalogs(updated);
+  }
 
   function handleSaved(saved) {
     setDialog(null);
@@ -238,8 +248,8 @@ export default function AppointmentsPage() {
 
       {canManage && catalogs && !canBook && (
         <p className="muted-text">
-          Para agendar, necesitas al menos un <Link to="/clientes">cliente</Link>, un{" "}
-          <Link to="/servicios">servicio</Link> y un <Link to="/peluqueros">peluquero</Link> activos.
+          Para agendar, necesitas al menos un <Link to="/servicios">servicio</Link> y un{" "}
+          <Link to="/peluqueros">peluquero</Link> activos. Puedes registrar al cliente al crear la cita.
         </p>
       )}
 
@@ -388,6 +398,7 @@ export default function AppointmentsPage() {
           date={date || todayInColombia()}
           barberId={barberId}
           catalogs={catalogs}
+          onClientCreated={handleClientCreated}
           onClose={() => setDialog(null)}
           onSaved={handleSaved}
         />

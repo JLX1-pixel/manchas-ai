@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createAppointment, getAppointmentAvailability, rescheduleAppointment } from "../api/appointments";
 import { extractErrorMessage } from "../api/client";
 import Modal from "./Modal";
+import QuickClientFields from "./QuickClientFields";
 
 function CatalogField({ name, label, records, value, onChange, disabled }) {
   return (
@@ -32,6 +33,7 @@ export default function AppointmentForm({
   date,
   barberId,
   catalogs,
+  onClientCreated,
   onClose,
   onSaved,
 }) {
@@ -50,6 +52,9 @@ export default function AppointmentForm({
   const [form, setForm] = useState(initial);
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isCreatingClient, setIsCreatingClient] = useState(false);
+  const [isSavingClient, setIsSavingClient] = useState(false);
+  const [clientNotice, setClientNotice] = useState("");
   const [availability, setAvailability] = useState(null);
   const [availabilityVersion, setAvailabilityVersion] = useState(0);
   const [manualTime, setManualTime] = useState(false);
@@ -102,7 +107,7 @@ export default function AppointmentForm({
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (isSaving || !canSave || !form.start_time) return;
+    if (isSaving || isCreatingClient || isSavingClient || !canSave || !form.start_time || !form.client_id) return;
 
     setIsSaving(true);
     setError("");
@@ -142,20 +147,41 @@ export default function AppointmentForm({
   return (
     <Modal
       title={appointment ? "Reprogramar cita" : "Nueva cita"}
-      onClose={() => { if (!isSaving) onClose(); }}
+      onClose={() => { if (!isSaving && !isSavingClient) onClose(); }}
     >
       <form onSubmit={handleSubmit}>
         {appointment ? (
           <p className="muted-text">Cliente: {client?.name || "No disponible"}</p>
         ) : (
-          <CatalogField
-            name="appointment-client"
-            label="Cliente"
-            records={clients}
-            value={form.client_id}
-            onChange={(value) => setField("client_id", value)}
-            disabled={isSaving}
-          />
+          <>
+            <CatalogField
+              name="appointment-client"
+              label="Cliente"
+              records={clients}
+              value={form.client_id}
+              onChange={(value) => { setField("client_id", value); setClientNotice(""); }}
+              disabled={isSaving || isCreatingClient}
+            />
+            {isCreatingClient ? (
+              <QuickClientFields
+                onSavingChange={setIsSavingClient}
+                onCancel={() => setIsCreatingClient(false)}
+                onCreated={(created) => {
+                  onClientCreated(created);
+                  setField("client_id", created.id);
+                  setIsCreatingClient(false);
+                  setClientNotice("Cliente registrado. Completa y guarda la cita.");
+                }}
+              />
+            ) : (
+              <div className="field">
+                <button type="button" className="btn btn-ghost btn-small" disabled={isSaving} onClick={() => { setClientNotice(""); setIsCreatingClient(true); }}>
+                  + Registrar cliente aquí
+                </button>
+                {clientNotice && <p className="muted-text" role="status">{clientNotice}</p>}
+              </div>
+            )}
+          </>
         )}
         <CatalogField
           name="appointment-barber"
@@ -261,10 +287,10 @@ export default function AppointmentForm({
         )}
         {error && <p className="error-text" role="alert">{error}</p>}
         <div className="modal-actions">
-          <button className="btn btn-ghost" type="button" onClick={onClose} disabled={isSaving}>
+          <button className="btn btn-ghost" type="button" onClick={onClose} disabled={isSaving || isSavingClient}>
             Volver
           </button>
-          <button className="btn btn-primary" disabled={isSaving || !canSave || !form.start_time}>
+          <button className="btn btn-primary" disabled={isSaving || isCreatingClient || isSavingClient || !canSave || !form.start_time || !form.client_id}>
             {isSaving ? "Guardando..." : "Guardar cita"}
           </button>
         </div>
