@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { createAppointment, rescheduleAppointment } from "../api/appointments";
+import { useEffect, useState } from "react";
+import { createAppointment, getAppointmentAvailability, rescheduleAppointment } from "../api/appointments";
 import { extractErrorMessage } from "../api/client";
 import Modal from "./Modal";
 
@@ -44,15 +44,53 @@ export default function AppointmentForm({
     barber_id: barbers.find(({ id }) => id === selectedBarberId)?.id || "",
     service_id: services.find(({ id }) => id === appointment?.service_id)?.id || "",
     appointment_date: appointment?.appointment_date || date,
-    start_time: appointment?.start_time.slice(0, 5) || "",
+    start_time: appointment?.start_time || "",
     notes: appointment?.notes || "",
   };
   const [form, setForm] = useState(initial);
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [availability, setAvailability] = useState(null);
+  const [availabilityVersion, setAvailabilityVersion] = useState(0);
+  const [manualTime, setManualTime] = useState(false);
+  const canQueryAvailability = Boolean(form.barber_id && form.service_id && form.appointment_date);
+  const availabilityKey = `${form.barber_id}/${form.service_id}/${form.appointment_date}/${availabilityVersion}`;
+  const currentAvailability = availability?.key === availabilityKey ? availability : null;
+  const isLoadingAvailability = canQueryAvailability && !currentAvailability;
+
+  useEffect(() => {
+    if (!canQueryAvailability) return;
+    const controller = new AbortController();
+    getAppointmentAvailability({
+      barberId: form.barber_id,
+      serviceId: form.service_id,
+      date: form.appointment_date,
+      excludeId: appointment?.id,
+      signal: controller.signal,
+    })
+      .then((slots) => {
+        if (!controller.signal.aborted) setAvailability({ key: availabilityKey, slots });
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) {
+          setAvailability({
+            key: availabilityKey,
+            error: extractErrorMessage(err, "No pudimos consultar las horas disponibles."),
+          });
+        }
+      });
+    return () => controller.abort();
+  }, [form.barber_id, form.service_id, form.appointment_date, appointment?.id, canQueryAvailability, availabilityKey]);
 
   function setField(field, value) {
-    setForm((previous) => ({ ...previous, [field]: value }));
+    const changesSchedule = ["barber_id", "service_id", "appointment_date"].includes(field);
+    if (changesSchedule) setManualTime(false);
+    setError("");
+    setForm((previous) => ({
+      ...previous,
+      [field]: value,
+      ...(changesSchedule && previous[field] !== value ? { start_time: "" } : {}),
+    }));
   }
 
   const changes = Object.fromEntries(
@@ -64,7 +102,7 @@ export default function AppointmentForm({
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (isSaving || !canSave) return;
+    if (isSaving || !canSave || !form.start_time) return;
 
     setIsSaving(true);
     setError("");
@@ -84,12 +122,22 @@ export default function AppointmentForm({
       onSaved(saved);
     } catch (err) {
       setError(extractErrorMessage(err, "No pudimos guardar la cita."));
+      if (err.response?.status === 409) {
+        setAvailabilityVersion((version) => version + 1);
+        setForm((previous) => ({ ...previous, start_time: "" }));
+        setManualTime(false);
+      }
     } finally {
       setIsSaving(false);
     }
   }
 
   const client = catalogs.clients.find(({ id }) => id === appointment?.client_id);
+  const slots = currentAvailability?.slots || [];
+  const keepOriginalTime = appointment && form.start_time === initial.start_time &&
+    form.barber_id === initial.barber_id && form.service_id === initial.service_id &&
+    form.appointment_date === initial.appointment_date &&
+    !slots.some((slot) => slot.start_time === initial.start_time);
 
   return (
     <Modal
@@ -141,15 +189,58 @@ export default function AppointmentForm({
         </div>
         <div className="field">
           <label htmlFor="appointment-start">Hora de inicio</label>
-          <input
+          <select
             id="appointment-start"
-            type="time"
-            value={form.start_time}
-            onChange={(event) => setField("start_time", event.target.value)}
+            value={manualTime ? "manual" : form.start_time}
+            onChange={(event) => {
+              if (event.target.value === "manual") {
+                setManualTime(true);
+              } else {
+                setManualTime(false);
+                setField("start_time", event.target.value);
+              }
+            }}
             aria-describedby="appointment-closing"
             required
-            disabled={isSaving}
-          />
+            disabled={isSaving || !canQueryAvailability || isLoadingAvailability}
+          >
+            <option value="">
+              {isLoadingAvailability ? "Consultando horarios…" : "Selecciona una hora disponible"}
+            </option>
+            {keepOriginalTime && <option value={initial.start_time}>{initial.start_time.slice(0, 5)} · Hora actual</option>}
+            {slots.map((slot) => (
+              <option key={slot.start_time} value={slot.start_time}>
+                {slot.start_time.slice(0, 5)} – {slot.end_time.slice(0, 5)}
+              </option>
+            ))}
+            <option value="manual">Escribir otra hora</option>
+          </select>
+          {!canQueryAvailability && <p className="muted-text">Elige el peluquero, el servicio y la fecha para consultar horarios.</p>}
+          {currentAvailability?.error && (
+            <div role="alert">
+              <p className="error-text">{currentAvailability.error}</p>
+              <button type="button" className="btn btn-ghost btn-small" onClick={() => setAvailabilityVersion((version) => version + 1)} disabled={isSaving}>
+                Volver a consultar
+              </button>
+            </div>
+          )}
+          {currentAvailability?.slots?.length === 0 && (
+            <p className="muted-text" role="status">No hay horas disponibles para este servicio, peluquero y fecha.</p>
+          )}
+          {manualTime && (
+            <div className="field" style={{ marginTop: 12 }}>
+              <label htmlFor="appointment-manual-start">Hora exacta</label>
+              <input
+                id="appointment-manual-start"
+                type="time"
+                step="any"
+                value={form.start_time}
+                onChange={(event) => setField("start_time", event.target.value)}
+                disabled={isSaving}
+                required
+              />
+            </div>
+          )}
           <p id="appointment-closing" className="muted-text">
             La cita debe terminar a más tardar a las 7:00 p. m.
           </p>
@@ -173,7 +264,7 @@ export default function AppointmentForm({
           <button className="btn btn-ghost" type="button" onClick={onClose} disabled={isSaving}>
             Volver
           </button>
-          <button className="btn btn-primary" disabled={isSaving || !canSave}>
+          <button className="btn btn-primary" disabled={isSaving || !canSave || !form.start_time}>
             {isSaving ? "Guardando..." : "Guardar cita"}
           </button>
         </div>

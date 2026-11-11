@@ -17,6 +17,11 @@ class AppointmentCreate(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
+class AppointmentSlot(BaseModel):
+    start_time: time
+    end_time: time
+
+
 class AppointmentReschedule(BaseModel):
     """Para reprogramar: cambia fecha/hora y, si hace falta,
     de peluquero o de servicio. Todo opcional, solo se actualiza

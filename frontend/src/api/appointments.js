@@ -48,6 +48,19 @@ export async function createAppointment(payload) {
   return response.data;
 }
 
+export async function getAppointmentAvailability({ barberId, serviceId, date, excludeId, signal }) {
+  const response = await apiClient.get("/appointments/availability", {
+    signal,
+    params: {
+      barber_id: barberId,
+      service_id: serviceId,
+      appointment_date: date,
+      exclude_appointment_id: excludeId || undefined,
+    },
+  });
+  return response.data;
+}
+
 export async function rescheduleAppointment(id, payload) {
   const response = await apiClient.put(`/appointments/${id}`, payload);
   return response.data;

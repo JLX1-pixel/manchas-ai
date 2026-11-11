@@ -21,6 +21,7 @@ from app.schemas.appointment import (
     AppointmentCreate,
     AppointmentOut,
     AppointmentReschedule,
+    AppointmentSlot,
 )
 
 router = APIRouter(
@@ -107,6 +108,23 @@ def _get_active_record(model, record_id, business_id, db, label: str):
     return record
 
 
+def _blocking_appointments_query(
+    business_id: uuid.UUID,
+    barber_id: uuid.UUID,
+    appointment_date: date,
+    exclude_appointment_id: uuid.UUID | None = None,
+):
+    query = select(Appointment).where(
+        Appointment.business_id == business_id,
+        Appointment.barber_id == barber_id,
+        Appointment.appointment_date == appointment_date,
+        Appointment.status.notin_(CLOSED_STATUSES),
+    )
+    if exclude_appointment_id is not None:
+        query = query.where(Appointment.id != exclude_appointment_id)
+    return query
+
+
 def _validate_slot(
     db: Session,
     barber_id: uuid.UUID,
@@ -178,19 +196,12 @@ def _validate_slot(
         )
 
     # 3. No debe cruzarse con otra cita activa del mismo peluquero.
-    overlap_query = select(Appointment).where(
-        Appointment.business_id == barber.business_id,
-        Appointment.barber_id == barber_id,
-        Appointment.appointment_date == appointment_date,
-        Appointment.status.notin_(CLOSED_STATUSES),
+    overlap_query = _blocking_appointments_query(
+        barber.business_id, barber_id, appointment_date, exclude_appointment_id,
+    ).where(
         Appointment.start_time < end_time,
         Appointment.end_time > start_time,
     )
-
-    if exclude_appointment_id is not None:
-        overlap_query = overlap_query.where(
-            Appointment.id != exclude_appointment_id
-        )
 
     conflicting = db.scalar(overlap_query)
 
@@ -225,6 +236,60 @@ def _current_user_barber_id(
         )
 
     return barber.id
+
+
+@router.get(
+    "/availability",
+    response_model=list[AppointmentSlot],
+    summary="Consultar horas disponibles para un servicio y peluquero",
+)
+def available_slots(
+    barber_id: uuid.UUID,
+    service_id: uuid.UUID,
+    appointment_date: date,
+    exclude_appointment_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_business_roles(*MANAGE_APPOINTMENTS_ROLES)),
+) -> list[AppointmentSlot]:
+    business_id = current_user.business_id
+    barber = _get_active_record(Barber, barber_id, business_id, db, "Peluquero")
+    service = _get_active_record(Service, service_id, business_id, db, "Servicio")
+    if exclude_appointment_id is not None:
+        _get_appointment_or_404(exclude_appointment_id, business_id, db)
+
+    schedule = db.scalar(select(BarberSchedule).where(
+        BarberSchedule.barber_id == barber.id,
+        BarberSchedule.weekday == appointment_date.weekday(),
+    ))
+    if (schedule is None or not schedule.is_working
+            or schedule.start_time is None or schedule.end_time is None):
+        return []
+    time_off = db.scalar(select(BarberTimeOff.id).where(
+        BarberTimeOff.barber_id == barber.id,
+        BarberTimeOff.start_date <= appointment_date,
+        BarberTimeOff.end_date >= appointment_date,
+    ))
+    if time_off is not None:
+        return []
+
+    bookings = list(db.scalars(_blocking_appointments_query(
+        business_id, barber.id, appointment_date, exclude_appointment_id,
+    )))
+    start = datetime.combine(date.min, schedule.start_time)
+    closing = datetime.combine(
+        date.min, min(schedule.end_time, MAX_APPOINTMENT_END_TIME),
+    )
+    duration = timedelta(minutes=service.duration_minutes)
+    slots = []
+    while start + duration <= closing:
+        end = start + duration
+        if not any(
+            booking.start_time < end.time() and booking.end_time > start.time()
+            for booking in bookings
+        ):
+            slots.append(AppointmentSlot(start_time=start.time(), end_time=end.time()))
+        start += timedelta(minutes=15)
+    return slots
 
 
 @router.post(
