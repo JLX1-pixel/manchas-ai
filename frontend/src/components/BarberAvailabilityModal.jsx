@@ -36,6 +36,8 @@ function displayDate(value) {
 
 export default function BarberAvailabilityModal({ barber, canManage, onClose }) {
   const [days, setDays] = useState([]);
+  const [quickDays, setQuickDays] = useState([0, 1, 2, 3, 4, 5]);
+  const [quickHours, setQuickHours] = useState({ start_time: "09:00", end_time: "19:00" });
   const [timeOff, setTimeOff] = useState([]);
   const [timeOffForm, setTimeOffForm] = useState(EMPTY_TIME_OFF);
   const [loadVersion, setLoadVersion] = useState(0);
@@ -51,6 +53,14 @@ export default function BarberAvailabilityModal({ barber, canManage, onClose }) 
       .then(([schedule, periods]) => {
         if (ignore) return;
         setDays(editableWeek(schedule));
+        const workingDays = schedule.filter((day) => day.is_working);
+        if (workingDays.length) {
+          setQuickDays(workingDays.map((day) => day.weekday));
+          setQuickHours({
+            start_time: workingDays[0].start_time,
+            end_time: workingDays[0].end_time,
+          });
+        }
         setTimeOff(periods);
       })
       .catch((error) => {
@@ -74,9 +84,9 @@ export default function BarberAvailabilityModal({ barber, canManage, onClose }) 
     ));
   }
 
-  async function saveSchedule(event) {
-    event.preventDefault();
-    const invalidDay = days.find((day) => day.is_working && (
+  async function saveDays(updatedDays) {
+    if (!canManage || pending) return;
+    const invalidDay = updatedDays.find((day) => day.is_working && (
       !day.start_time || !day.end_time ||
       timeInSeconds(day.end_time) <= timeInSeconds(day.start_time)
     ));
@@ -93,7 +103,7 @@ export default function BarberAvailabilityModal({ barber, canManage, onClose }) 
     setPending("schedule");
 
     try {
-      const saved = await updateBarberSchedule(barber.id, days.map((day) => ({
+      const saved = await updateBarberSchedule(barber.id, updatedDays.map((day) => ({
         ...day,
         start_time: day.is_working ? day.start_time : null,
         end_time: day.is_working ? day.end_time : null,
@@ -108,6 +118,29 @@ export default function BarberAvailabilityModal({ barber, canManage, onClose }) 
     } finally {
       setPending("");
     }
+  }
+
+  function saveSchedule(event) {
+    event.preventDefault();
+    saveDays(days);
+  }
+
+  function toggleQuickDay(weekday) {
+    setScheduleMessage(null);
+    setQuickDays((selected) => selected.includes(weekday)
+      ? selected.filter((day) => day !== weekday)
+      : [...selected, weekday]);
+  }
+
+  function saveQuickSchedule() {
+    if (!quickDays.length || !quickHours.start_time || !quickHours.end_time ||
+      timeInSeconds(quickHours.end_time) <= timeInSeconds(quickHours.start_time)) {
+      setScheduleMessage({ error: true, text: "Elige los días y una salida posterior a la entrada." });
+      return;
+    }
+    saveDays(days.map((day) => quickDays.includes(day.weekday)
+      ? { ...day, ...quickHours, is_working: true }
+      : day));
   }
 
   async function addTimeOff(event) {
@@ -178,49 +211,100 @@ export default function BarberAvailabilityModal({ barber, canManage, onClose }) 
           </p>
           <form onSubmit={saveSchedule}>
             <fieldset style={FIELDSET_STYLE} disabled={!canManage || Boolean(pending)}>
-              {days.map((day) => (
-                <div className="field" key={day.weekday}>
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={day.is_working}
-                      onChange={(event) => updateDay(day.weekday, { is_working: event.target.checked })}
-                    />
-                    {WEEKDAYS[day.weekday]}
-                  </label>
-                  {day.is_working && (
-                    <div style={{ display: "flex", gap: 12 }}>
-                      <label style={{ flex: 1 }}>
-                        Entrada
-                        <input
-                          type="time"
-                          step="any"
-                          value={day.start_time}
-                          aria-label={`Entrada del ${WEEKDAYS[day.weekday].toLowerCase()}`}
-                          onChange={(event) => updateDay(day.weekday, { start_time: event.target.value })}
-                          required
-                        />
-                      </label>
-                      <label style={{ flex: 1 }}>
-                        Salida
-                        <input
-                          type="time"
-                          step="any"
-                          value={day.end_time}
-                          aria-label={`Salida del ${WEEKDAYS[day.weekday].toLowerCase()}`}
-                          onChange={(event) => updateDay(day.weekday, { end_time: event.target.value })}
-                          required
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
-              ))}
               {canManage && (
-                <button className="btn btn-primary" type="submit">
-                  {pending === "schedule" ? "Guardando…" : "Guardar horario"}
-                </button>
+                <section className="schedule-quick" aria-label="Horario para varios días">
+                  <div className="schedule-hours field">
+                    <label htmlFor="quick-schedule-start">
+                      Entrada
+                      <input
+                        id="quick-schedule-start"
+                        type="time"
+                        step="any"
+                        value={quickHours.start_time}
+                        onChange={(event) => {
+                          setScheduleMessage(null);
+                          setQuickHours({ ...quickHours, start_time: event.target.value });
+                        }}
+                      />
+                    </label>
+                    <label htmlFor="quick-schedule-end">
+                      Salida
+                      <input
+                        id="quick-schedule-end"
+                        type="time"
+                        step="any"
+                        value={quickHours.end_time}
+                        onChange={(event) => {
+                          setScheduleMessage(null);
+                          setQuickHours({ ...quickHours, end_time: event.target.value });
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <div className="schedule-days field" role="group" aria-label="Días a los que se aplica el horario">
+                    {WEEKDAYS.map((name, weekday) => (
+                      <label className="checkbox-label" key={name}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Aplicar el ${name.toLowerCase()}`}
+                          checked={quickDays.includes(weekday)}
+                          onChange={() => toggleQuickDay(weekday)}
+                        />
+                        {name.slice(0, 3)}
+                      </label>
+                    ))}
+                  </div>
+                  <button className="btn btn-primary" type="button" onClick={saveQuickSchedule}>
+                    {pending === "schedule" ? "Guardando…" : "Aplicar y guardar"}
+                  </button>
+                </section>
               )}
+              <details className="schedule-individual" open={!canManage}>
+                <summary>Horarios por día</summary>
+                {days.map((day) => (
+                  <div className="field" key={day.weekday}>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={day.is_working}
+                        onChange={(event) => updateDay(day.weekday, { is_working: event.target.checked })}
+                      />
+                      {WEEKDAYS[day.weekday]}
+                    </label>
+                    {day.is_working && (
+                      <div className="schedule-hours">
+                        <label style={{ flex: 1 }}>
+                          Entrada
+                          <input
+                            type="time"
+                            step="any"
+                            value={day.start_time}
+                            aria-label={`Entrada del ${WEEKDAYS[day.weekday].toLowerCase()}`}
+                            onChange={(event) => updateDay(day.weekday, { start_time: event.target.value })}
+                            required
+                          />
+                        </label>
+                        <label style={{ flex: 1 }}>
+                          Salida
+                          <input
+                            type="time"
+                            step="any"
+                            value={day.end_time}
+                            aria-label={`Salida del ${WEEKDAYS[day.weekday].toLowerCase()}`}
+                            onChange={(event) => updateDay(day.weekday, { end_time: event.target.value })}
+                            required
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {canManage && (
+                  <button className="btn btn-primary" type="submit">
+                    {pending === "schedule" ? "Guardando…" : "Guardar horario"}
+                  </button>
+                )}
+              </details>
             </fieldset>
             <FormMessage message={scheduleMessage} />
           </form>

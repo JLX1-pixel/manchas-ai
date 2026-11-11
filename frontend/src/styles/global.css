@@ -282,6 +282,44 @@ button {
   width: auto;
 }
 
+.schedule-hours {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.schedule-hours label,
+.schedule-hours input {
+  min-width: 0;
+}
+
+.schedule-days {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.schedule-days .checkbox-label {
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.schedule-days .checkbox-label:has(input:checked) {
+  border-color: var(--brand-wine);
+  background: var(--surface-page);
+}
+
+.schedule-individual {
+  margin-top: 20px;
+}
+
+.schedule-individual summary {
+  margin-bottom: 16px;
+  cursor: pointer;
+}
+
 .table-container {
   width: 100%;
   padding: 0;
