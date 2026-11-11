@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     UniqueConstraint,
     func,
@@ -64,6 +65,13 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
+    )
+
+    token_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
     )
 
     role: Mapped[str] = mapped_column(
